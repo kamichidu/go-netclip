@@ -4,21 +4,21 @@ import (
 	"fmt"
 
 	"github.com/kamichidu/go-netclip/internal/metadata"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
-var cmdConfig = cli.Command{
+var cmdConfig = &cli.Command{
 	Name: "config",
 	Subcommands: cli.Commands{
-		cli.Command{
+		&cli.Command{
 			Name:   "list",
 			Action: configList,
 		},
-		cli.Command{
+		&cli.Command{
 			Name:   "get",
 			Action: configGet,
 		},
-		cli.Command{
+		&cli.Command{
 			Name:   "set",
 			Action: configSet,
 		},

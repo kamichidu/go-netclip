@@ -5,10 +5,10 @@ import (
 	"fmt"
 
 	"github.com/kamichidu/go-netclip/internal/metadata"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
-var cmdWatch = cli.Command{
+var cmdWatch = &cli.Command{
 	Name:   "watch",
 	Action: doWatch,
 }

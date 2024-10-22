@@ -2,6 +2,8 @@ package clipboard
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -19,12 +21,6 @@ type Store struct {
 	once sync.Once
 
 	firestoreClient *firestore.Client
-}
-
-type Container struct {
-	Value string `firestore:"value"`
-
-	Timestamp time.Time `firestore:"timestamp"`
 }
 
 func (s *Store) Init(ctx context.Context) error {
@@ -46,6 +42,28 @@ func (s *Store) Init(ctx context.Context) error {
 	return retErr
 }
 
+func (s *Store) List(ctx context.Context) ([]*Container, error) {
+	if err := s.Init(ctx); err != nil {
+		return nil, err
+	}
+
+	l, err := s.firestoreClient.Collection("clipboard").
+		OrderBy("timestamp", firestore.Desc).
+		Documents(ctx).GetAll()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*Container, len(l))
+	for i := range l {
+		var v Container
+		if err := l[i].DataTo(&v); err != nil {
+			return nil, err
+		}
+		out[i] = &v
+	}
+	return out, nil
+}
+
 func (s *Store) Copy(ctx context.Context, v string) error {
 	if err := s.Init(ctx); err != nil {
 		return err
@@ -53,7 +71,26 @@ func (s *Store) Copy(ctx context.Context, v string) error {
 
 	value := &Container{
 		Value:     v,
-		Timestamp: time.Now(),
+		MD5:       md5sum(v),
+		Timestamp: time.Now().Truncate(time.Second),
+	}
+	l, err := s.firestoreClient.Collection("clipboard").
+		Where("md5", "==", value.MD5).
+		Documents(ctx).GetAll()
+	if err != nil {
+		return err
+	}
+	for i := range l {
+		var other Container
+		if err := l[i].DataTo(&other); err != nil {
+			return err
+		}
+		if other.Value != value.Value {
+			continue
+		}
+		if _, err := l[i].Ref.Delete(ctx, firestore.LastUpdateTime(l[i].UpdateTime)); err != nil {
+			return err
+		}
 	}
 	doc := s.firestoreClient.Collection("clipboard").Doc(uuid.New().String())
 	if _, err := doc.Create(ctx, &value); err != nil {
@@ -88,6 +125,60 @@ func (s *Store) Paste(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return v.Value, nil
+}
+
+func (s *Store) Remove(ctx context.Context, timestamps ...time.Time) error {
+	if len(timestamps) == 0 {
+		return nil
+	}
+	if err := s.Init(ctx); err != nil {
+		return err
+	}
+
+	for i := range timestamps {
+		timestamps[i] = timestamps[i].Truncate(time.Second)
+	}
+	l, err := s.firestoreClient.Collection("clipboard").
+		Where("timestamp", "in", timestamps).
+		Documents(ctx).GetAll()
+	if err != nil {
+		return err
+	} else if len(l) != len(timestamps) {
+		return fmt.Errorf("invalid number of documents found, expects %d but got %d", len(timestamps), len(l))
+	}
+	return s.firestoreClient.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		for i := range l {
+			if err := tx.Delete(l[i].Ref, firestore.LastUpdateTime(l[i].UpdateTime)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (s *Store) Expiry(ctx context.Context, d time.Duration) error {
+	if err := s.Init(ctx); err != nil {
+		return err
+	}
+
+	expiry := time.Now().Add(d)
+	l, err := s.firestoreClient.Collection("clipboard").
+		Where("timestamp", "<=", expiry).
+		Documents(ctx).GetAll()
+	if err != nil {
+		return err
+	}
+	if len(l) == 0 {
+		return nil
+	}
+	return s.firestoreClient.RunTransaction(ctx, func(ctx context.Context, tx *firestore.Transaction) error {
+		for i := range l {
+			if err := tx.Delete(l[i].Ref, firestore.LastUpdateTime(l[i].UpdateTime)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *Store) Watch(ctx context.Context) <-chan Event {
@@ -144,4 +235,9 @@ func (s *Store) Watch(ctx context.Context) <-chan Event {
 		}
 	}()
 	return ch
+}
+
+func md5sum(s string) string {
+	byt := md5.Sum([]byte(s))
+	return hex.EncodeToString(byt[:])
 }

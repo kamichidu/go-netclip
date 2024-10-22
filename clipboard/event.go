@@ -32,14 +32,17 @@ type Event struct {
 }
 
 func (v Event) String() string {
+	return fmt.Sprintf("%v - err=%v value=%v", v.Type, v.Err, Shorten(v.Value))
+}
+
+func Shorten(s string) string {
 	const maxLen = 80
 
-	s := v.Value
 	s = strings.ReplaceAll(s, "\r", "\\r")
 	s = strings.ReplaceAll(s, "\n", "\\n")
 	chars := []rune(s)
 	if len(chars) > maxLen {
 		chars = append(chars[:maxLen-3], []rune("...")...)
 	}
-	return fmt.Sprintf("%v - err=%v value=%v", v.Type, v.Err, string(chars))
+	return string(chars)
 }

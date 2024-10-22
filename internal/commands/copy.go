@@ -5,10 +5,10 @@ import (
 	"io"
 
 	"github.com/kamichidu/go-netclip/internal/metadata"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
-var cmdCopy = cli.Command{
+var cmdCopy = &cli.Command{
 	Name:   "copy",
 	Action: doCopy,
 }

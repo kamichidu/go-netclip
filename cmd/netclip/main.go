@@ -13,7 +13,7 @@ import (
 	"github.com/kamichidu/go-netclip/internal/commands"
 	"github.com/kamichidu/go-netclip/internal/config"
 	"github.com/kamichidu/go-netclip/internal/metadata"
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v2"
 )
 
 var (
