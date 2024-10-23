@@ -1,6 +1,7 @@
 package clipboard
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -29,6 +30,19 @@ type Event struct {
 	Value string
 
 	Err error
+}
+
+func (v Event) MarshalJSON() ([]byte, error) {
+	m := map[string]any{
+		"type": v.Type.String(),
+	}
+	if v.Value != "" {
+		m["value"] = v.Value
+	}
+	if v.Err != nil {
+		m["err"] = v.Err.Error()
+	}
+	return json.Marshal(m)
 }
 
 func (v Event) String() string {

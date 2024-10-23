@@ -23,10 +23,10 @@ func GetConfig(m map[string]any) *config.NetclipConfig {
 	return m["config"].(*config.NetclipConfig)
 }
 
-func SetStore(m map[string]any, v *clipboard.Store) {
+func SetStore(m map[string]any, v clipboard.Store) {
 	m["store"] = v
 }
 
-func GetStore(m map[string]any) *clipboard.Store {
-	return m["store"].(*clipboard.Store)
+func GetStore(m map[string]any) clipboard.Store {
+	return m["store"].(clipboard.Store)
 }
