@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os/exec"
+	"strings"
 
 	"github.com/kamichidu/go-netclip/clipboard"
 	"github.com/kamichidu/go-netclip/internal/metadata"
@@ -16,6 +19,9 @@ var cmdWatch = &cli.Command{
 		&cli.BoolFlag{
 			Name: "stream",
 		},
+		&cli.StringFlag{
+			Name: "exec",
+		},
 	},
 	Action: doWatch,
 }
@@ -26,6 +32,7 @@ func init() {
 
 func doWatch(c *cli.Context) error {
 	stream := c.Bool("stream")
+	execCmd := c.String("exec")
 	store := metadata.GetStore(c.App.Metadata)
 
 	var write func(clipboard.Event) error
@@ -45,6 +52,17 @@ func doWatch(c *cli.Context) error {
 	ch := store.Watch(ctx)
 	for evt := range ch {
 		write(evt)
+		if execCmd == "" {
+			continue
+		}
+		cmd := exec.CommandContext(ctx, execCmd)
+		cmd.Stdin = strings.NewReader(evt.Value)
+		cmd.Stdout = io.Discard
+		cmd.Stderr = c.App.ErrWriter
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(c.App.ErrWriter, "error: %s: %v\n", execCmd, err)
+			continue
+		}
 	}
 	return nil
 }
