@@ -10,12 +10,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/kamichidu/go-netclip/clipboard"
 	"go.uber.org/multierr"
+	"google.golang.org/api/option"
 )
 
 type drv struct {
 	ProjectID string
 
 	Database string
+
+	CredentialsFile string
 
 	once sync.Once
 
@@ -25,9 +28,11 @@ type drv struct {
 func newDriver(m map[string]any) (clipboard.Store, error) {
 	projectID, _ := m["projectId"].(string)
 	database, _ := m["database"].(string)
+	credFile, _ := m["credentials"].(string)
 	return &drv{
-		ProjectID: projectID,
-		Database:  database,
+		ProjectID:       projectID,
+		Database:        database,
+		CredentialsFile: credFile,
 	}, nil
 }
 
@@ -35,10 +40,14 @@ func (d *drv) Init(ctx context.Context) error {
 	var retErr error
 	d.once.Do(func() {
 		newFirestoreClient := func() (*firestore.Client, error) {
+			var opts []option.ClientOption
+			if d.CredentialsFile != "" {
+				opts = append(opts, option.WithCredentialsFile(d.CredentialsFile))
+			}
 			if d.Database == "" {
-				return firestore.NewClient(ctx, d.ProjectID)
+				return firestore.NewClient(ctx, d.ProjectID, opts...)
 			} else {
-				return firestore.NewClientWithDatabase(ctx, d.ProjectID, d.Database)
+				return firestore.NewClientWithDatabase(ctx, d.ProjectID, d.Database, opts...)
 			}
 		}
 		if c, err := newFirestoreClient(); err != nil {

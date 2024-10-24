@@ -63,9 +63,11 @@ func run(stdin io.Reader, stdout, stderr io.Writer, args []string) int {
 
 		firestoreProjectID := cfg.Get("firestore.projectId").(string)
 		firestoreDatabase := cfg.Get("firestore.database").(string)
+		firestoreCredentials := cfg.Get("firestore.credentials").(string)
 		store, err := clipboard.NewStore("firestore", map[string]any{
-			"projectId": firestoreProjectID,
-			"database":  firestoreDatabase,
+			"projectId":   firestoreProjectID,
+			"database":    firestoreDatabase,
+			"credentials": firestoreCredentials,
 		})
 		if err != nil {
 			return err

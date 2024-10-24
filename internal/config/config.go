@@ -34,6 +34,12 @@ var (
 				reflect.TypeOf(""),
 			},
 		},
+		"firestore.credentials": spec{
+			Default: "",
+			Types: []reflect.Type{
+				reflect.TypeOf(""),
+			},
+		},
 	}
 )
 
