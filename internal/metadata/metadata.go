@@ -4,7 +4,7 @@ import (
 	"io"
 
 	"github.com/kamichidu/go-netclip/clipboard"
-	"github.com/kamichidu/go-netclip/internal/config"
+	"github.com/kamichidu/go-netclip/config"
 )
 
 func SetStdin(m map[string]any, v io.Reader) {

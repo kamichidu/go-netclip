@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/kamichidu/go-netclip/internal/metadata"
@@ -41,6 +42,9 @@ func configList(c *cli.Context) error {
 func configGet(c *cli.Context) error {
 	cfg := metadata.GetConfig(c.App.Metadata)
 	key := c.Args().Get(0)
+	if !cfg.ValidKey(key) {
+		return errors.New("no such key: " + key)
+	}
 	value := cfg.Get(key)
 	fmt.Fprintf(c.App.Writer, "%v\n", value)
 	return nil
@@ -50,6 +54,9 @@ func configSet(c *cli.Context) error {
 	cfg := metadata.GetConfig(c.App.Metadata)
 	key := c.Args().Get(0)
 	value := c.Args().Get(1)
+	if !cfg.ValidKey(key) {
+		return errors.New("no such key: " + key)
+	}
 	cfg.Set(key, value)
 	return cfg.Commit()
 }

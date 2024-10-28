@@ -9,6 +9,7 @@ import (
 	"cloud.google.com/go/firestore"
 	"github.com/google/uuid"
 	"github.com/kamichidu/go-netclip/clipboard"
+	"github.com/kamichidu/go-netclip/config"
 	"go.uber.org/multierr"
 	"google.golang.org/api/option"
 )
@@ -25,10 +26,10 @@ type drv struct {
 	firestoreClient *firestore.Client
 }
 
-func newDriver(m map[string]any) (clipboard.Store, error) {
-	projectID, _ := m["projectId"].(string)
-	database, _ := m["database"].(string)
-	credFile, _ := m["credentials"].(string)
+func newDriver(cfg *config.NetclipConfig) (clipboard.Store, error) {
+	projectID, _ := cfg.Get("firestore.projectId").(string)
+	database, _ := cfg.Get("firestore.database").(string)
+	credFile, _ := cfg.Get("firestore.credentials").(string)
 	return &drv{
 		ProjectID:       projectID,
 		Database:        database,
@@ -259,4 +260,7 @@ func asMapFromContainer(src *clipboard.Container) map[string]any {
 
 func init() {
 	clipboard.Register("firestore", newDriver)
+	config.Register("firestore.projectId", config.NewSpec("", config.TypeString))
+	config.Register("firestore.database", config.NewSpec("", config.TypeString))
+	config.Register("firestore.credentials", config.NewSpec("", config.TypeString))
 }

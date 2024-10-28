@@ -5,9 +5,11 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/kamichidu/go-netclip/config"
 )
 
-type NewStoreFunc func(map[string]any) (Store, error)
+type NewStoreFunc func(*config.NetclipConfig) (Store, error)
 
 type Store interface {
 	List(context.Context) ([]*Container, error)
@@ -41,10 +43,10 @@ func Lookup(name string) (NewStoreFunc, bool) {
 	return fn, ok
 }
 
-func NewStore(driverName string, args map[string]any) (Store, error) {
+func NewStore(driverName string, cfg *config.NetclipConfig) (Store, error) {
 	newStore, ok := Lookup(driverName)
 	if !ok {
 		return nil, errors.New("invalid store driver: " + driverName)
 	}
-	return newStore(args)
+	return newStore(cfg)
 }

@@ -11,8 +11,8 @@ import (
 	"github.com/comail/colog"
 	"github.com/kamichidu/go-netclip/clipboard"
 	_ "github.com/kamichidu/go-netclip/clipboard/driver/firestore"
+	"github.com/kamichidu/go-netclip/config"
 	"github.com/kamichidu/go-netclip/internal/commands"
-	"github.com/kamichidu/go-netclip/internal/config"
 	"github.com/kamichidu/go-netclip/internal/metadata"
 	"github.com/urfave/cli/v2"
 )
@@ -61,14 +61,7 @@ func run(stdin io.Reader, stdout, stderr io.Writer, args []string) int {
 		}
 		metadata.SetConfig(c.App.Metadata, cfg)
 
-		firestoreProjectID := cfg.Get("firestore.projectId").(string)
-		firestoreDatabase := cfg.Get("firestore.database").(string)
-		firestoreCredentials := cfg.Get("firestore.credentials").(string)
-		store, err := clipboard.NewStore("firestore", map[string]any{
-			"projectId":   firestoreProjectID,
-			"database":    firestoreDatabase,
-			"credentials": firestoreCredentials,
-		})
+		store, err := clipboard.NewStore("firestore", cfg)
 		if err != nil {
 			return err
 		}

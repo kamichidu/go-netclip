@@ -6,48 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
-	"sort"
 )
-
-const (
-	KeyServerURL = "server.url"
-)
-
-var (
-	configSpec = map[string]spec{
-		KeyServerURL: spec{
-			Default: "http://localhost:30564",
-			Types: []reflect.Type{
-				reflect.TypeOf(""),
-			},
-		},
-		"firestore.projectId": spec{
-			Default: "",
-			Types: []reflect.Type{
-				reflect.TypeOf(""),
-			},
-		},
-		"firestore.database": spec{
-			Default: "",
-			Types: []reflect.Type{
-				reflect.TypeOf(""),
-			},
-		},
-		"firestore.credentials": spec{
-			Default: "",
-			Types: []reflect.Type{
-				reflect.TypeOf(""),
-			},
-		},
-	}
-)
-
-type spec struct {
-	Default any
-
-	Types []reflect.Type
-}
 
 type NetclipConfig struct {
 	Path string
@@ -73,20 +32,20 @@ func NewNetclipConfigFromFile(name string) (*NetclipConfig, error) {
 }
 
 func (c *NetclipConfig) Keys() []string {
-	l := make([]string, 0, len(configSpec))
-	for k := range configSpec {
-		l = append(l, k)
-	}
-	sort.Strings(l)
-	return l
+	return reg.Names()
+}
+
+func (c *NetclipConfig) ValidKey(key string) bool {
+	_, ok := reg.Lookup(key)
+	return ok
 }
 
 func (c *NetclipConfig) Set(key string, value any) {
-	spec, ok := configSpec[key]
+	spec, ok := reg.Lookup(key)
 	if !ok {
 		panic("invalid config key: " + key)
 	}
-	if !validateType(value, spec.Types) {
+	if !spec.Validate(value) {
 		panic(fmt.Sprintf("invalid value type: %T", value))
 	}
 	v, err := json.Marshal(value)
@@ -97,7 +56,7 @@ func (c *NetclipConfig) Set(key string, value any) {
 }
 
 func (c *NetclipConfig) Get(key string) any {
-	spec, ok := configSpec[key]
+	spec, ok := reg.Lookup(key)
 	if !ok {
 		panic("invalid config key: " + key)
 	}
@@ -109,7 +68,7 @@ func (c *NetclipConfig) Get(key string) any {
 	if err := json.Unmarshal(value, &v); err != nil {
 		panic(err)
 	}
-	if !validateType(v, spec.Types) {
+	if !spec.Validate(v) {
 		panic(fmt.Sprintf("invalid value type: %T", v))
 	}
 	if v == nil {
@@ -133,17 +92,4 @@ func (c *NetclipConfig) Write(name string) error {
 	}
 	data = append(data, []byte("\n")...)
 	return os.WriteFile(name, data, 0644)
-}
-
-func validateType(v any, typs []reflect.Type) bool {
-	if v == nil {
-		return true
-	}
-	typ := reflect.TypeOf(v)
-	for i := range typs {
-		if typ == typs[i] {
-			return true
-		}
-	}
-	return false
 }
