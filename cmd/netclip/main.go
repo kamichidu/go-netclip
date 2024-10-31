@@ -5,13 +5,14 @@ import (
 	"io"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/comail/colog"
 	"github.com/kamichidu/go-netclip/clipboard"
 	_ "github.com/kamichidu/go-netclip/clipboard/driver/firestore"
+	_ "github.com/kamichidu/go-netclip/clipboard/driver/netclipserver"
 	"github.com/kamichidu/go-netclip/config"
+	"github.com/kamichidu/go-netclip/internal"
 	"github.com/kamichidu/go-netclip/internal/commands"
 	"github.com/kamichidu/go-netclip/internal/metadata"
 	"github.com/urfave/cli/v2"
@@ -20,18 +21,12 @@ import (
 var (
 	//go:embed usage.txt
 	usageString string
-
-	defaultConfigFile string
 )
 
 func init() {
 	colog.Register()
 
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		panic(err)
-	}
-	defaultConfigFile = filepath.Join(homeDir, ".config/netclip/netclip.json")
+	config.Register("driver", config.NewSpec("netclip.server", config.TypeString))
 }
 
 func run(stdin io.Reader, stdout, stderr io.Writer, args []string) int {
@@ -48,7 +43,7 @@ func run(stdin io.Reader, stdout, stderr io.Writer, args []string) int {
 		&cli.StringFlag{
 			Name:  "config, c",
 			Usage: "configuration file `path`",
-			Value: defaultConfigFile,
+			Value: internal.DefaultConfigFile,
 		},
 	}
 	app.Before = func(c *cli.Context) error {
@@ -61,7 +56,8 @@ func run(stdin io.Reader, stdout, stderr io.Writer, args []string) int {
 		}
 		metadata.SetConfig(c.App.Metadata, cfg)
 
-		store, err := clipboard.NewStore("firestore", cfg)
+		driverName, _ := cfg.Get("driver").(string)
+		store, err := clipboard.NewStore(driverName, cfg)
 		if err != nil {
 			return err
 		}

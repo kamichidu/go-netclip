@@ -1,0 +1,126 @@
+# https://taskfile.dev
+
+version: '3'
+
+vars:
+  # https://github.com/protocolbuffers/protobuf/releases
+  PROTOC_VERSION: '27.2'
+
+  # https://github.com/protocolbuffers/protobuf-go/releases
+  PROTOC_GEN_GO_VERSION: '1.34.2'
+
+  # https://github.com/grpc/grpc-go/releases
+  PROTOC_GEN_GO_GRPC_VERSION: '1.4.0'
+
+  # https://github.com/envoyproxy/protoc-gen-validate/releases
+  PROTOC_GEN_VALIDATE_VERSION: '1.0.4'
+
+
+tasks:
+  format:
+    cmds:
+      - |
+        clang-format --style google -i netclippb/netclip.proto
+
+  protoc:
+    cmds:
+      - ./netclippb/protoc.sh
+
+  init:
+    cmds:
+      - task: init:protoc
+      - task: init:protoc-gen-go
+      - task: init:protoc-gen-go-grpc
+      - task: init:protoc-gen-validate
+      - task: init:googleapis-proto
+
+  init:protoc:
+    vars:
+      VERSION: "{{.PROTOC_VERSION}}"
+      OS: >-
+        {{- if eq OS "darwin"}}osx
+        {{- else}}{{OS}}
+        {{- end}}
+    dir: .local/opt/protoc/
+    cmds:
+      - mkdir -p src/
+      - curl -sS -L -o src/protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v{{.VERSION}}/protoc-{{.VERSION}}-{{.OS}}-x86_64.zip
+      - unzip -o src/protoc.zip
+      - { task: mklink, vars: { TARGET: .local/opt/protoc/bin/protoc } }
+
+  init:protoc-gen-go:
+    env:
+      GOBIN: "{{.PWD}}/.local/bin/"
+    cmds:
+      - |
+        go install 'google.golang.org/protobuf/cmd/protoc-gen-go@v{{.PROTOC_GEN_GO_VERSION}}'
+
+  init:protoc-gen-go-grpc:
+    env:
+      GOBIN: "{{.PWD}}/.local/bin/"
+    cmds:
+      - go install 'google.golang.org/grpc/cmd/protoc-gen-go-grpc@v{{.PROTOC_GEN_GO_GRPC_VERSION}}'
+
+  init:protoc-gen-validate:
+    env:
+      GOBIN: "{{.PWD}}/.local/bin/"
+    cmds:
+      - task: git-clone
+        vars:
+          URL: https://github.com/envoyproxy/protoc-gen-validate
+          DIR: .local/opt/protoc-gen-validate
+          REF: 'v{{.PROTOC_GEN_VALIDATE_VERSION}}'
+      - cd .local/opt/protoc-gen-validate && go install .
+
+  init:googleapis-proto:
+    cmds:
+      - task: git-clone
+        vars:
+          URL: https://github.com/googleapis/googleapis
+          DIR: .local/opt/googleapis
+          REF: master
+
+  git-clone:
+    vars:
+      URL: '{{.URL}}'
+      DIR: '{{.DIR}}'
+      REF: '{{.REF | default "main"}}'
+    preconditions:
+      - test -n '{{.URL}}'
+      - test -n '{{.DIR}}'
+    cmds:
+      - { task: rmdir, vars: { DIR: '{{.DIR}}' } }
+      - |
+        git clone \
+          --branch '{{.REF}}' \
+          --single-branch \
+          --depth 1 \
+          --recurse-submodules \
+          --shallow-submodules \
+          '{{.URL}}' \
+          '{{.DIR}}'
+
+  rmdir:
+    preconditions:
+      - test -n '{{.DIR}}'
+      - test '{{.DIR}}' != '/'
+    cmds:
+      - |
+        if [[ -d '{{.DIR}}' ]]; then
+          rm -rf '{{.DIR}}'
+        fi
+
+  mklink:
+    preconditions:
+      - test -n '{{.TARGET}}'
+    cmds:
+      - mkdir -p .local/bin/
+      - |
+        ln \
+          --force \
+          --symbolic \
+          --verbose \
+          --no-dereference \
+          --relative \
+          '{{.TARGET}}' \
+          '.local/bin/{{base .TARGET}}'

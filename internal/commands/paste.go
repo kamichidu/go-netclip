@@ -21,10 +21,10 @@ func doPaste(c *cli.Context) error {
 	store := metadata.GetStore(c.App.Metadata)
 
 	ctx := context.Background()
-	data, err := store.Paste(ctx)
+	value, err := store.Paste(ctx)
 	if err != nil {
 		return err
 	}
-	_, err = io.WriteString(c.App.Writer, data)
+	_, err = io.WriteString(c.App.Writer, value.Value)
 	return err
 }

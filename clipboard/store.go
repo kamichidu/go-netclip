@@ -7,16 +7,17 @@ import (
 	"time"
 
 	"github.com/kamichidu/go-netclip/config"
+	"github.com/kamichidu/go-netclip/netclippb"
 )
 
 type NewStoreFunc func(*config.NetclipConfig) (Store, error)
 
 type Store interface {
-	List(context.Context) ([]*Container, error)
+	List(context.Context) ([]*netclippb.Container, error)
 	Copy(context.Context, string) error
-	Paste(context.Context) (string, error)
+	Paste(context.Context) (*netclippb.Container, error)
 	Remove(context.Context, ...time.Time) error
-	Expiry(context.Context, time.Duration) error
+	Expire(context.Context, time.Time) error
 	Watch(context.Context) <-chan Event
 }
 

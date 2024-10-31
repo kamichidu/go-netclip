@@ -56,7 +56,7 @@ func doWatch(c *cli.Context) error {
 			continue
 		}
 		cmd := exec.CommandContext(ctx, execCmd)
-		cmd.Stdin = strings.NewReader(evt.Value)
+		cmd.Stdin = strings.NewReader(evt.Value.Value)
 		cmd.Stdout = io.Discard
 		cmd.Stderr = c.App.ErrWriter
 		if err := cmd.Run(); err != nil {

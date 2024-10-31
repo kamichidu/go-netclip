@@ -4,21 +4,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/kamichidu/go-netclip/netclippb"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type EventType int
 
 const (
 	EventCopy EventType = iota
-	EventRemove
 )
 
 func (v EventType) String() string {
 	switch v {
 	case EventCopy:
 		return "copy"
-	case EventRemove:
-		return "remove"
 	default:
 		panic(fmt.Sprintf("invalid EventType(%d)", int(v)))
 	}
@@ -27,7 +27,7 @@ func (v EventType) String() string {
 type Event struct {
 	Type EventType
 
-	Value string
+	Value *netclippb.Container
 
 	Err error
 }
@@ -36,8 +36,12 @@ func (v Event) MarshalJSON() ([]byte, error) {
 	m := map[string]any{
 		"type": v.Type.String(),
 	}
-	if v.Value != "" {
-		m["value"] = v.Value
+	if v.Value != nil {
+		if b, err := protojson.Marshal(v.Value); err != nil {
+			return nil, err
+		} else {
+			m["value"] = json.RawMessage(b)
+		}
 	}
 	if v.Err != nil {
 		m["err"] = v.Err.Error()
@@ -46,7 +50,7 @@ func (v Event) MarshalJSON() ([]byte, error) {
 }
 
 func (v Event) String() string {
-	return fmt.Sprintf("%v - err=%v value=%v", v.Type, v.Err, Shorten(v.Value))
+	return fmt.Sprintf("%v - err=%v value=%v", v.Type, v.Err, Shorten(v.Value.Value))
 }
 
 func Shorten(s string) string {

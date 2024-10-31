@@ -3,21 +3,14 @@ package clipboard
 import (
 	"crypto/md5"
 	"encoding/hex"
-	"time"
 )
 
-type Container struct {
-	Value string
+// func (v *Container) String() string {
+// 	ts := v.Timestamp.Format(time.RFC3339)
+// 	return ts + " - " + Shorten(v.Value)
+// }
 
-	Timestamp time.Time
-}
-
-func (v *Container) String() string {
-	ts := v.Timestamp.Format(time.RFC3339)
-	return ts + " - " + Shorten(v.Value)
-}
-
-func (v *Container) MD5() string {
-	byt := md5.Sum([]byte(v.Value))
+func MD5(s string) string {
+	byt := md5.Sum([]byte(s))
 	return hex.EncodeToString(byt[:])
 }

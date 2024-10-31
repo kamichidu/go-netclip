@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kamichidu/go-netclip/clipboard"
 	"github.com/kamichidu/go-netclip/config"
+	"github.com/kamichidu/go-netclip/netclippb"
 	"go.uber.org/multierr"
 	"google.golang.org/api/option"
 )
@@ -60,7 +61,7 @@ func (d *drv) Init(ctx context.Context) error {
 	return retErr
 }
 
-func (d *drv) List(ctx context.Context) ([]*clipboard.Container, error) {
+func (d *drv) List(ctx context.Context) ([]*netclippb.Container, error) {
 	if err := d.Init(ctx); err != nil {
 		return nil, err
 	}
@@ -71,7 +72,7 @@ func (d *drv) List(ctx context.Context) ([]*clipboard.Container, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*clipboard.Container, len(l))
+	out := make([]*netclippb.Container, len(l))
 	for i := range l {
 		out[i] = newContainerFromDocumentSnapshot(l[i])
 	}
@@ -83,12 +84,13 @@ func (d *drv) Copy(ctx context.Context, v string) error {
 		return err
 	}
 
-	value := &clipboard.Container{
+	value := &netclippb.Container{
 		Value:     v,
-		Timestamp: time.Now().Truncate(time.Second),
+		Md5:       clipboard.MD5(v),
+		Timestamp: time.Now().Unix(),
 	}
 	l, err := d.firestoreClient.Collection("clipboard").
-		Where("md5", "==", value.MD5()).
+		Where("md5", "==", value.Md5).
 		Documents(ctx).GetAll()
 	if err != nil {
 		return err
@@ -103,15 +105,19 @@ func (d *drv) Copy(ctx context.Context, v string) error {
 		}
 	}
 	doc := d.firestoreClient.Collection("clipboard").Doc(uuid.New().String())
-	if _, err := doc.Create(ctx, asMapFromContainer(value)); err != nil {
+	if _, err := doc.Create(ctx, map[string]any{
+		"value":     value.Value,
+		"md5":       value.Md5,
+		"timestamp": value.Timestamp,
+	}); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (d *drv) Paste(ctx context.Context) (string, error) {
+func (d *drv) Paste(ctx context.Context) (*netclippb.Container, error) {
 	if err := d.Init(ctx); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	itr := d.firestoreClient.Collection("clipboard").Query.
@@ -120,18 +126,17 @@ func (d *drv) Paste(ctx context.Context) (string, error) {
 		Documents(ctx)
 	l, err := itr.GetAll()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	switch n := len(l); n {
 	case 0:
-		return "", nil
+		return &netclippb.Container{}, nil
 	case 1:
 		// ok
 	default:
 		panic(fmt.Sprintf("invalid number of documents: %d", n))
 	}
-	v := newContainerFromDocumentSnapshot(l[0])
-	return v.Value, nil
+	return newContainerFromDocumentSnapshot(l[0]), nil
 }
 
 func (d *drv) Remove(ctx context.Context, timestamps ...time.Time) error {
@@ -163,14 +168,13 @@ func (d *drv) Remove(ctx context.Context, timestamps ...time.Time) error {
 	})
 }
 
-func (d *drv) Expiry(ctx context.Context, duration time.Duration) error {
+func (d *drv) Expire(ctx context.Context, t time.Time) error {
 	if err := d.Init(ctx); err != nil {
 		return err
 	}
 
-	expiry := time.Now().Add(duration)
 	l, err := d.firestoreClient.Collection("clipboard").
-		Where("timestamp", "<=", expiry).
+		Where("timestamp", "<=", t).
 		Documents(ctx).GetAll()
 	if err != nil {
 		return err
@@ -220,42 +224,29 @@ func (d *drv) Watch(ctx context.Context) <-chan clipboard.Event {
 				return
 			}
 			for _, dc := range qs.Changes {
-				var evt clipboard.Event
-				switch dc.Kind {
-				case firestore.DocumentAdded:
-					evt.Type = clipboard.EventCopy
-				case firestore.DocumentModified:
-					evt.Type = clipboard.EventCopy
-				case firestore.DocumentRemoved:
-					evt.Type = clipboard.EventRemove
+				if dc.Kind == firestore.DocumentRemoved {
+					continue
 				}
-				v := newContainerFromDocumentSnapshot(dc.Doc)
-				evt.Value = v.Value
-				ch <- evt
+				ch <- clipboard.Event{
+					Type:  clipboard.EventCopy,
+					Value: newContainerFromDocumentSnapshot(dc.Doc),
+				}
 			}
 		}
 	}()
 	return ch
 }
 
-func newContainerFromDocumentSnapshot(src *firestore.DocumentSnapshot) *clipboard.Container {
-	var out clipboard.Container
+func newContainerFromDocumentSnapshot(src *firestore.DocumentSnapshot) *netclippb.Container {
+	var out netclippb.Container
 	m := src.Data()
 	if v, ok := m["value"].(string); ok {
 		out.Value = v
 	}
 	if v, ok := m["timestamp"].(time.Time); ok {
-		out.Timestamp = v
+		out.Timestamp = v.Unix()
 	}
 	return &out
-}
-
-func asMapFromContainer(src *clipboard.Container) map[string]any {
-	return map[string]any{
-		"value":     src.Value,
-		"md5":       src.MD5(),
-		"timestamp": src.Timestamp.Truncate(time.Second),
-	}
 }
 
 func init() {

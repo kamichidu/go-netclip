@@ -32,7 +32,7 @@ func doRemove(c *cli.Context) error {
 	store := metadata.GetStore(c.App.Metadata)
 
 	if purge {
-		expiry = -time.Second
+		expiry = time.Second
 	}
 	if expiry != time.Duration(0) && len(timestamps) > 0 {
 		return cli.Exit("invalid args, --expiry/--purge/{timestamp} are exclusive.", 1)
@@ -40,7 +40,7 @@ func doRemove(c *cli.Context) error {
 
 	ctx := context.Background()
 	if expiry != time.Duration(0) {
-		return store.Expiry(ctx, expiry)
+		return store.Expire(ctx, time.Now().Add(-expiry))
 	}
 	l := make([]time.Time, len(timestamps))
 	for i := range timestamps {

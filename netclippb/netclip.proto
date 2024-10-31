@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package xyz.kamichidu.netclip;
+
+import "google/api/annotations.proto";
+import "google/protobuf/empty.proto";
+import "validate/validate.proto";
+
+option go_package = 'github.com/kamichidu/go-netclip/netclippb';
+
+service Netclip {
+  rpc List(ListRequest) returns (ListResponse);
+  rpc Copy(CopyRequest) returns (CopyResponse);
+  rpc Paste(PasteRequest) returns (PasteResponse);
+  rpc Remove(RemoveRequest) returns (RemoveResponse);
+  rpc Expire(ExpireRequest) returns (ExpireResponse);
+  rpc Watch(WatchRequest) returns (stream WatchResponse);
+}
+
+message Container {
+  string value = 1;
+
+  string md5 = 2;
+
+  int64 timestamp = 3;
+}
+
+message ListRequest {}
+
+message ListResponse {
+  repeated Container items = 1;
+}
+
+message CopyRequest {
+  string value = 1;
+}
+
+message CopyResponse {}
+
+message PasteRequest {}
+
+message PasteResponse {
+  Container value = 1;
+}
+
+message RemoveRequest {
+  repeated int64 timestamps = 1;
+}
+
+message RemoveResponse {}
+
+message ExpireRequest {
+  int64 expires_at = 1;
+}
+
+message ExpireResponse {}
+
+message WatchRequest {}
+
+message WatchResponse {
+  Container value = 1;
+}
