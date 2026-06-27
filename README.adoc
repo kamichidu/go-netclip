@@ -1,0 +1,84 @@
+= netclip
+
+`netclip` is a lightweight clipboard synchronization tool
+that allows copying text from an SSH remote host directly to your local machine's clipboard.
+It achieves this without running any persistent daemon or dedicated executable on the remote host,
+relying solely on standard SSH forwarding and a local daemon.
+
+== Operational Overview
+
+When you connect to a remote host via SSH,
+a Unix Domain Socket (UDS) is established in your home directory on the remote host and forwarded back to the local `netclip daemon`.
+
+[mermaid]
+----
+flowchart TD
+    subgraph Remote Host
+        A[curl] -->|Unix Domain Socket| B["~/.netclip.sock"]
+    end
+    B -->|SSH RemoteForward| C["127.0.0.1:45555"]
+    subgraph Local Machine
+        C --> D[netclip daemon]
+        D -->|pbcopy / clip.exe / wl-copy| E[Local Clipboard]
+    end
+----
+
+== Setup
+
+Follow these steps to set up `netclip`:
+
+. Add the following entry to your local SSH configuration file (typically `~/.ssh/config`):
++
+[source,sshconfig]
+----
+Host *
+  PermitLocalCommand yes
+  LocalCommand netclip daemon --listen 127.0.0.1:45555 --background
+  RemoteForward ~/.netclip.sock 127.0.0.1:45555
+  StreamLocalBindUnlink yes
+  ExitOnForwardFailure yes
+----
+
+. Define the `netclip` helper function in your shell configuration (e.g., `~/.bashrc` or `~/.zshrc`) on the *remote host*:
++
+[source,bash]
+----
+netclip() {
+  local sock="${NETCLIP_SOCK:-~/.netclip.sock}"
+
+  curl --silent --show-error --fail \
+    --unix-socket "$sock" \
+    -X POST \
+    --data-binary @- \
+    http://netclip/copy
+}
+----
+
+. Copy any terminal payload from the remote host back to your local machine by piping it into `netclip`:
++
+[source,bash]
+----
+git diff | netclip
+----
+
+== Constraints & Concurrent SSH Invocations
+
+By default, standard multi-session concurrent SSH connections to the same remote user are not handled out of the box.
+Since `StreamLocalBindUnlink yes` is configured, a subsequent SSH session will hijack/re-bind the `~/.netclip.sock` socket to itself.
+
+If you wish to explicitly segregate multiple local machines or sessions, configure distinct socket paths for each:
+
+* On Local Client A (`~/.ssh/config`):
++
+[source,sshconfig]
+----
+Host work
+  RemoteForward ~/.netclip-mac.sock 127.0.0.1:45555
+----
+
+* On Remote Host A:
++
+[source,bash]
+----
+NETCLIP_SOCK=~/.netclip-mac.sock netclip
+----
