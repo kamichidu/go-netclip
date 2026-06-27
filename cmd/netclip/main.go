@@ -1,76 +1,132 @@
 package main
 
 import (
-	_ "embed"
-	"io"
+	"flag"
+	"fmt"
 	"log"
+	"net"
 	"os"
-	"strings"
+	"os/exec"
+	"time"
 
-	"github.com/comail/colog"
-	"github.com/kamichidu/go-netclip/clipboard"
-	_ "github.com/kamichidu/go-netclip/clipboard/driver/firestore"
-	_ "github.com/kamichidu/go-netclip/clipboard/driver/netclipserver"
-	"github.com/kamichidu/go-netclip/config"
-	"github.com/kamichidu/go-netclip/internal"
-	"github.com/kamichidu/go-netclip/internal/commands"
-	"github.com/kamichidu/go-netclip/internal/metadata"
-	"github.com/urfave/cli/v2"
+	"github.com/kamichidu/go-netclip/internal/daemon"
 )
 
-var (
-	//go:embed usage.txt
-	usageString string
-)
-
-func init() {
-	colog.Register()
-
-	config.Register("driver", config.NewSpec("netclip.server", config.TypeString))
-}
-
-func run(stdin io.Reader, stdout, stderr io.Writer, args []string) int {
-	log.SetOutput(stderr)
-
-	app := cli.NewApp()
-	app.Name = "netclip"
-	app.Usage = "Yet another network clipboard sharing tool"
-	app.UsageText = strings.TrimSpace(usageString)
-	app.Writer = stdout
-	app.ErrWriter = stderr
-	app.Commands = commands.Commands
-	app.Flags = []cli.Flag{
-		&cli.StringFlag{
-			Name:  "config, c",
-			Usage: "configuration file `path`",
-			Value: internal.DefaultConfigFile,
-		},
-	}
-	app.Before = func(c *cli.Context) error {
-		metadata.SetStdin(c.App.Metadata, stdin)
-
-		filename := c.String("config")
-		cfg, err := config.NewNetclipConfigFromFile(filename)
-		if err != nil {
-			return err
-		}
-		metadata.SetConfig(c.App.Metadata, cfg)
-
-		driverName, _ := cfg.Get("driver").(string)
-		store, err := clipboard.NewStore(driverName, cfg)
-		if err != nil {
-			return err
-		}
-		metadata.SetStore(c.App.Metadata, store)
-		return nil
-	}
-	if err := app.Run(args); err != nil {
-		log.Printf("error: %v", err)
-		return 1
-	}
-	return 0
-}
+const defaultAddr = "127.0.0.1:45555"
 
 func main() {
-	os.Exit(run(os.Stdin, os.Stdout, os.Stderr, os.Args))
+	if len(os.Args) < 2 {
+		printUsage()
+		os.Exit(1)
+	}
+
+	switch os.Args[1] {
+	case "daemon":
+		fs := flag.NewFlagSet("daemon", flag.ExitOnError)
+		listenAddr := fs.String("listen", defaultAddr, "TCP address to listen on")
+		background := fs.Bool("background", false, "Run the daemon process in the background")
+		clipCmd := fs.String("clipboard-command", "", "Explicit command to use for copying (e.g. wl-copy)")
+
+		fs.Usage = func() {
+			fmt.Fprintf(os.Stderr, "Usage: netclip daemon [options]\n\nOptions:\n")
+			fs.PrintDefaults()
+		}
+
+		if err := fs.Parse(os.Args[2:]); err != nil {
+			log.Fatalf("error parsing flags: %v", err)
+		}
+
+		runDaemon(*listenAddr, *background, *clipCmd)
+
+	case "help", "-h", "--help":
+		printUsage()
+		os.Exit(0)
+
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", os.Args[1])
+		printUsage()
+		os.Exit(1)
+	}
+}
+
+func printUsage() {
+	usage := `netclip - SSH RemoteForward clipboard synchronization daemon
+
+Usage:
+  netclip <command> [options]
+
+Commands:
+  daemon    Start the local clipboard daemon
+  help      Show this help message
+
+Use "netclip daemon --help" for information on a specific command.
+`
+	fmt.Fprint(os.Stderr, usage)
+}
+
+func runDaemon(addr string, background bool, clipboardCommand string) {
+	// 1. Check if already listening (guarantees idempotency)
+	if isAlreadyRunning(addr) {
+		log.Printf("netclip daemon is already running and listening on %s. Exiting successfully.", addr)
+		os.Exit(0)
+	}
+
+	// 2. Handle background startup
+	if background {
+		startBackgroundDaemon(addr, clipboardCommand)
+		os.Exit(0)
+	}
+
+	// 3. Normal startup (start HTTP server)
+	srv := daemon.NewServer(addr, clipboardCommand)
+	if err := srv.Start(); err != nil {
+		log.Fatalf("failed to start daemon: %v", err)
+	}
+}
+
+func isAlreadyRunning(addr string) bool {
+	conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		return true
+	}
+	return false
+}
+
+func startBackgroundDaemon(addr, clipboardCommand string) {
+	self, err := os.Executable()
+	if err != nil {
+		log.Fatalf("failed to get current executable path: %v", err)
+	}
+
+	var args []string
+	args = append(args, "daemon", "--listen", addr)
+	if clipboardCommand != "" {
+		args = append(args, "--clipboard-command", clipboardCommand)
+	}
+
+	cmd := exec.Command(self, args...)
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+
+	if err := cmd.Start(); err != nil {
+		log.Fatalf("failed to start background process: %v", err)
+	}
+
+	// Verify background startup by polling with timeout
+	success := false
+	for i := 0; i < 5; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if isAlreadyRunning(addr) {
+			success = true
+			break
+		}
+	}
+
+	if !success {
+		log.Fatalf("failed to confirm daemon startup within 500ms. Check logs or bind permissions.")
+	}
+
+	log.Printf("netclip daemon successfully started in background on %s", addr)
 }

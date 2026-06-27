@@ -1,0 +1,295 @@
+= netclip SSH Forward Design Specification
+
+== 1. Purpose
+
+Provide a seamless mechanism to copy text from an SSH session back to the local machine's clipboard.
+
+Intended Use Cases::
+* Copying text generated on an SSH remote host to the local machine
+* Bypassing constraints of `screen`, `tmux`, and `OSC52`
+* Shared cross-platform support on `macOS`, `Windows`, and `Linux`
+* Avoiding the requirement of a dedicated daemon running on the remote host
+
+== 2. Strategy
+
+Establish a Unix Domain Socket on the remote host using SSH `RemoteForward`.
+
+Sending an HTTP `POST` request to this socket from the remote host transfers the payload to the local `netclip daemon`, which then copies the data into the local operating system's clipboard.
+
+[listing]
+----
+remote host
+  curl --unix-socket /tmp/netclip.sock
+    ↓
+  /tmp/netclip.sock
+    ↓ SSH RemoteForward
+local machine
+  127.0.0.1:45555
+    ↓
+  netclip daemon
+    ↓
+  pbcopy / clip.exe / wl-copy
+----
+
+== 3. Non-Goals
+
+The following aspects are out of scope:
+
+* Stabilizing `OSC52`
+* Controlling clipboards through `screen` or `tmux`
+* Running a persistent daemon on the remote host
+* Dynamic port allocation using port `0`
+* Dynamic environment variable injection solely via SSH config
+
+== 4. SSH Configuration
+
+Example:
+
+[source,sshconfig]
+----
+Host work
+  PermitLocalCommand yes
+  LocalCommand netclip daemon --listen 127.0.0.1:45555 --background
+  RemoteForward /tmp/netclip.sock 127.0.0.1:45555
+  StreamLocalBindUnlink yes
+  ExitOnForwardFailure yes
+----
+
+=== Explanation of Configuration Options
+
+`PermitLocalCommand yes`::
+Executes the specified `LocalCommand` on the local machine when initiating an SSH connection.
+
+`LocalCommand netclip daemon --listen 127.0.0.1:45555 --background`::
+Launches the `netclip daemon` locally. The daemon startup is idempotent:
++
+--
+* Exits successfully if already listening on the specified port
+* Starts in the background if not already running
+* Exits with a non-zero status code upon startup failure
+--
+
+`RemoteForward /tmp/netclip.sock 127.0.0.1:45555`::
+Forwards the remote Unix Domain Socket `/tmp/netclip.sock` to the local address `127.0.0.1:45555`.
+
+`StreamLocalBindUnlink yes`::
+Removes any existing stale socket file on the remote host to ensure a clean binding of the forwarded socket.
+
+`ExitOnForwardFailure yes`::
+Terminates the entire SSH connection if the socket forwarding setup fails.
+
+== 5. Remote Usage
+
+There is no need to deploy a dedicated `netclip` binary on the remote host.
+
+=== curl
+
+[source,bash]
+----
+printf 'hello' | curl --silent --show-error --fail \
+  --unix-socket /tmp/netclip.sock \
+  -X POST \
+  --data-binary @- \
+  http://netclip/copy
+----
+
+Alias Example:
+
+[source,bash]
+----
+netclip() {
+  curl --silent --show-error --fail \
+    --unix-socket "${NETCLIP_SOCK:-/tmp/netclip.sock}" \
+    -X POST \
+    --data-binary @- \
+    http://netclip/copy
+}
+----
+
+Usage Examples:
+
+[source,bash]
+----
+git diff | netclip
+kubectl get deploy -o yaml | netclip
+terraform plan -no-color | netclip
+----
+
+=== socat
+
+Alternative candidate only if a raw protocol without HTTP is introduced in the future:
+
+[source,bash]
+----
+cat file.txt | socat - UNIX-CONNECT:/tmp/netclip.sock
+----
+
+HTTP is the recommended protocol for the initial implementation.
+
+== 6. Local Daemon Specification
+
+=== Startup
+
+[source,bash]
+----
+netclip daemon --listen 127.0.0.1:45555 --background
+----
+
+=== Requirements
+
+The daemon must satisfy the following:
+
+* Bind only to loopback interfaces
+* Receive HTTP `POST` requests
+* Write the request body directly to the local operating system's clipboard
+* Prevent errors or corruption on multiple concurrent invocations (idempotent)
+* Exit successfully if another instance is already running
+* Write failure reasons to `stderr` or log outputs
+
+=== API
+
+==== POST /copy
+
+Sets the request body directly as the clipboard content.
+
+[source,http]
+----
+POST /copy HTTP/1.1
+Host: netclip
+Content-Type: application/octet-stream
+
+...
+----
+
+On Success:
+
+[source,http]
+----
+HTTP/1.1 204 No Content
+----
+
+On Failure:
+
+[source,http]
+----
+HTTP/1.1 500 Internal Server Error
+----
+
+== 7. Clipboard Adapter
+
+The adapter switches behavior depending on the host operating system.
+
+[cols="1,3"]
+|===
+| OS | Command
+
+| `darwin`
+| `pbcopy`
+
+| `windows`
+| `clip.exe` / PowerShell `Set-Clipboard`
+
+| `linux`
+| `wl-copy` / `xclip` / `xsel`
+|===
+
+The preference order for automatic detection is specified within the implementation.
+
+Since Linux environments vary widely (Wayland, X11, headless), explicit override configuration is permitted.
+
+[source,bash]
+----
+netclip daemon --clipboard-command wl-copy
+----
+
+== 8. Security
+
+The local daemon binds exclusively to `127.0.0.1`.
+
+The only component visible to the remote host is the Unix Domain Socket created via SSH forwarding.
+
+Assumed Security Boundary:
+
+[listing]
+----
+Write access to /tmp/netclip.sock on the remote host
+  =
+Write access to the local machine's clipboard
+----
+
+Therefore, socket paths should be segmented per-user if necessary.
+
+Recommended:
+
+[source,sshconfig]
+----
+RemoteForward /tmp/netclip-%r.sock 127.0.0.1:45555
+----
+
+Alternatively, use a secure runtime directory on the remote host:
+
+[source,sshconfig]
+----
+RemoteForward /run/user/%i/netclip.sock 127.0.0.1:45555
+----
+
+Since `%i` may not expand directly as an SSH config token in all systems, `/tmp/netclip-%r.sock` is the standard recommendation.
+
+== 9. Known Constraints
+
+* Requires a `curl` version with `--unix-socket` support on the remote host.
+* Assumes the Windows OpenSSH client supports `PermitLocalCommand` and `LocalCommand`.
+* Requires using TCP binding instead of Unix Domain Sockets on Windows local hosts.
+* Concurrent SSH sessions utilizing the exact same remote socket path will conflict.
+* Ownership and permissions of sockets under `/tmp` require careful handling.
+
+== 10. Recommended Defaults
+
+=== SSH Configuration
+
+[source,sshconfig]
+----
+Host *
+  PermitLocalCommand yes
+  LocalCommand netclip daemon --listen 127.0.0.1:45555 --background
+  RemoteForward /tmp/netclip-%r.sock 127.0.0.1:45555
+  StreamLocalBindUnlink yes
+  ExitOnForwardFailure yes
+----
+
+=== Remote Shell Function
+
+[source,bash]
+----
+netclip() {
+  local sock="${NETCLIP_SOCK:-/tmp/netclip-$USER.sock}"
+
+  curl --silent --show-error --fail \
+    --unix-socket "$sock" \
+    -X POST \
+    --data-binary @- \
+    http://netclip/copy
+}
+----
+
+== 11. Implementation Roadmap
+
+. Implement HTTP `/copy` endpoint on the local daemon
+. Implement system-specific clipboard adapters
+. Implement daemonization with `--background` and startup idempotency
+. Validate `LocalCommand` and `RemoteForward` functionality within SSH config
+. Standardize remote `curl` helper functions
+. Support Windows clipboard adapter integration
+. Refine socket paths, ownership, and permission policies
+
+== 12. Design Rationale
+
+The fixed-port approach was selected for the following reasons:
+
+Reasons::
+* Fully declarable within standard SSH configurations
+* Eliminates the need for a dedicated remote daemon
+* Avoids complexity of coordinating dynamic ports (e.g. port `0`)
+* Free from limitations imposed by terminal multiplexers (`screen`/`tmux`) or `OSC52` escape sequences
+* Simple and universally accessible via standard `curl` utility
+* Encapsulates all OS-specific execution details inside the local daemon's clipboard adapters
