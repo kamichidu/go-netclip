@@ -1,0 +1,10 @@
+netclip - SSH RemoteForward clipboard synchronization daemon
+
+Usage:
+  netclip <command> [options]
+
+Commands:
+  daemon    Start the local clipboard daemon
+  help      Show this help message
+
+Use "netclip daemon --help" for information on a specific command.

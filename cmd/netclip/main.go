@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"flag"
 	"fmt"
 	"log"
@@ -13,6 +14,9 @@ import (
 )
 
 const defaultAddr = "127.0.0.1:45555"
+
+//go:embed usage.txt
+var usageString string
 
 func main() {
 	if len(os.Args) < 2 {
@@ -50,18 +54,7 @@ func main() {
 }
 
 func printUsage() {
-	usage := `netclip - SSH RemoteForward clipboard synchronization daemon
-
-Usage:
-  netclip <command> [options]
-
-Commands:
-  daemon    Start the local clipboard daemon
-  help      Show this help message
-
-Use "netclip daemon --help" for information on a specific command.
-`
-	fmt.Fprint(os.Stderr, usage)
+	fmt.Fprint(os.Stderr, usageString)
 }
 
 func runDaemon(addr string, background bool, clipboardCommand string) {
