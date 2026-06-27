@@ -8,13 +8,13 @@ relying solely on standard SSH forwarding and a local daemon.
 == Operational Overview
 
 When you connect to a remote host via SSH,
-a Unix Domain Socket (UDS) is established in your home directory on the remote host and forwarded back to the local `netclip daemon`.
+a Unix Domain Socket (UDS) is established on the remote host and forwarded back to the local `netclip daemon`.
 
 [mermaid]
 ----
 flowchart TD
     subgraph Remote Host
-        A[curl] -->|Unix Domain Socket| B["~/.netclip.sock"]
+        A[curl] -->|Unix Domain Socket| B["/tmp/netclip-%r.sock"]
     end
     B -->|SSH RemoteForward| C["127.0.0.1:45555"]
     subgraph Local Machine
@@ -34,7 +34,7 @@ Follow these steps to set up `netclip`:
 Host *
   PermitLocalCommand yes
   LocalCommand netclip daemon --listen 127.0.0.1:45555 --background
-  RemoteForward ~/.netclip.sock 127.0.0.1:45555
+  RemoteForward /tmp/netclip-%r.sock 127.0.0.1:45555
   StreamLocalBindUnlink yes
   ExitOnForwardFailure yes
 ----
@@ -44,10 +44,10 @@ Host *
 [source,bash]
 ----
 netclip() {
-  local sock="${NETCLIP_SOCK:-$HOME/.netclip.sock}"
+  local sock="${NETCLIP_SOCK:-/tmp/netclip-${USER}.sock}"
 
   curl --silent --show-error --fail \
-    --unix-socket "$sock" \
+    --unix-socket "${sock}" \
     -X POST \
     --data-binary @- \
     http://netclip/copy
@@ -64,7 +64,7 @@ git diff | netclip
 == Constraints & Concurrent SSH Invocations
 
 By default, standard multi-session concurrent SSH connections to the same remote user are not handled out of the box.
-Since `StreamLocalBindUnlink yes` is configured, a subsequent SSH session will hijack/re-bind the `~/.netclip.sock` socket to itself.
+Since `StreamLocalBindUnlink yes` is configured, a subsequent SSH session will hijack/re-bind the `/tmp/netclip-%r.sock` socket to itself.
 
 If you wish to explicitly segregate multiple local machines or sessions, configure distinct socket paths for each:
 
@@ -73,12 +73,12 @@ If you wish to explicitly segregate multiple local machines or sessions, configu
 [source,sshconfig]
 ----
 Host work
-  RemoteForward ~/.netclip-mac.sock 127.0.0.1:45555
+  RemoteForward /tmp/netclip-%r-mac.sock 127.0.0.1:45555
 ----
 
 * On Remote Host A:
 +
 [source,bash]
 ----
-NETCLIP_SOCK=~/.netclip-mac.sock netclip
+NETCLIP_SOCK=/tmp/netclip-${USER}-mac.sock netclip
 ----

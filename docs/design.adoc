@@ -22,7 +22,7 @@ which then copies the data into the local operating system's clipboard.
 ----
 flowchart TD
     subgraph Remote Host
-        A[curl] -->|Unix Domain Socket| B["~/.netclip.sock"]
+        A[curl] -->|Unix Domain Socket| B["/tmp/netclip-%r.sock"]
     end
     B -->|SSH RemoteForward| C["127.0.0.1:45555"]
     subgraph Local Machine
@@ -50,7 +50,7 @@ Example:
 Host work
   PermitLocalCommand yes
   LocalCommand netclip daemon --listen 127.0.0.1:45555 --background
-  RemoteForward ~/.netclip.sock 127.0.0.1:45555
+  RemoteForward /tmp/netclip-%r.sock 127.0.0.1:45555
   StreamLocalBindUnlink yes
   ExitOnForwardFailure yes
 ----
@@ -71,8 +71,8 @@ The daemon startup is idempotent:
 * Exits with a non-zero status code upon startup failure
 --
 
-`RemoteForward ~/.netclip.sock 127.0.0.1:45555`::
-Forwards the remote Unix Domain Socket `~/.netclip.sock`
+`RemoteForward /tmp/netclip-%r.sock 127.0.0.1:45555`::
+Forwards the remote Unix Domain Socket `/tmp/netclip-%r.sock`
 to the local address `127.0.0.1:45555`.
 
 `StreamLocalBindUnlink yes`::
@@ -92,7 +92,7 @@ There is no need to deploy a dedicated `netclip` binary on the remote host.
 [source,bash]
 ----
 printf 'hello' | curl --silent --show-error --fail \
-  --unix-socket ~/.netclip.sock \
+  --unix-socket /tmp/netclip-${USER}.sock \
   -X POST \
   --data-binary @- \
   http://netclip/copy
@@ -104,7 +104,7 @@ Alias Example:
 ----
 netclip() {
   curl --silent --show-error --fail \
-    --unix-socket "${NETCLIP_SOCK:-~/.netclip.sock}" \
+    --unix-socket "${NETCLIP_SOCK:-/tmp/netclip-${USER}.sock}" \
     -X POST \
     --data-binary @- \
     http://netclip/copy
@@ -126,7 +126,7 @@ Alternative candidate only if a raw protocol without HTTP is introduced in the f
 
 [source,bash]
 ----
-cat file.txt | socat - UNIX-CONNECT:~/.netclip.sock
+cat file.txt | socat - UNIX-CONNECT:/tmp/netclip-${USER}.sock
 ----
 
 HTTP is the recommended protocol for the initial implementation.
@@ -219,14 +219,14 @@ Assumed Security Boundary:
 
 [listing]
 ----
-Write access to ~/.netclip.sock on the remote host
+Write access to /tmp/netclip-%r.sock on the remote host
   =
 Write access to the local machine's clipboard
 ----
 
-The standard socket is created within the remote user's home directory (`~/.netclip.sock`).
-This simplifies security because the home directory is inherently secure (private owner-only permissions),
-obviating ownership and permission risks associated with shared directories like `/tmp`.
+The standard socket is created within a shared directory using a user-specific token (`/tmp/netclip-%r.sock`).
+The `%r` token (expanded by the SSH server to the remote user name) ensures that multiple remote users on the same host do not collide or write to each other's sockets.
+Ensure permissions on `/tmp` and socket creation are restricted to owner-only to prevent unauthorized access.
 
 == 9. Known Constraints
 
@@ -234,7 +234,7 @@ obviating ownership and permission risks associated with shared directories like
 * Assumes the Windows OpenSSH client supports `PermitLocalCommand` and `LocalCommand`.
 * Requires using TCP binding instead of Unix Domain Sockets on Windows local hosts.
 * **Concurrent Invocations / Multi-Session Limits**: By default, standard concurrent SSH connections to the same remote user are not supported under a shared socket.
-Because of `StreamLocalBindUnlink yes`, the subsequent SSH session will hijack/re-bind the standard `~/.netclip.sock` socket to itself.
+Because of `StreamLocalBindUnlink yes`, the subsequent SSH session will hijack/re-bind the standard `/tmp/netclip-%r.sock` socket to itself.
 If users wish to explicitly isolate multiple local machines or sessions, they must configure distinct socket paths:
 +
 --
@@ -242,13 +242,13 @@ If users wish to explicitly isolate multiple local machines or sessions, they mu
 +
 [source,sshconfig]
 ----
-RemoteForward ~/.netclip-mac.sock 127.0.0.1:45555
+RemoteForward /tmp/netclip-%r-mac.sock 127.0.0.1:45555
 ----
 * Remote usage:
 +
 [source,bash]
 ----
-NETCLIP_SOCK=~/.netclip-mac.sock netclip
+NETCLIP_SOCK=/tmp/netclip-${USER}-mac.sock netclip
 ----
 --
 
@@ -261,7 +261,7 @@ NETCLIP_SOCK=~/.netclip-mac.sock netclip
 Host *
   PermitLocalCommand yes
   LocalCommand netclip daemon --listen 127.0.0.1:45555 --background
-  RemoteForward ~/.netclip.sock 127.0.0.1:45555
+  RemoteForward /tmp/netclip-%r.sock 127.0.0.1:45555
   StreamLocalBindUnlink yes
   ExitOnForwardFailure yes
 ----
@@ -271,7 +271,7 @@ Host *
 [source,bash]
 ----
 netclip() {
-  local sock="${NETCLIP_SOCK:-~/.netclip.sock}"
+  local sock="${NETCLIP_SOCK:-/tmp/netclip-${USER}.sock}"
 
   curl --silent --show-error --fail \
     --unix-socket "$sock" \
@@ -302,3 +302,23 @@ Reasons::
 * Free from limitations imposed by terminal multiplexers (`screen`/`tmux`) or `OSC52` escape sequences
 * Simple and universally accessible via standard `curl` utility
 * Encapsulates all OS-specific execution details inside the local daemon's clipboard adapters
+
+== 13. Architectural Decision Records (ADRs)
+
+=== ADR 1: Rejecting Home Directory Socket Path (`~/.netclip.sock`)
+
+Status::
+  Rejected
+
+Context::
+  We initially proposed establishing the remote Unix Domain Socket within the remote user's home directory (`~/.netclip.sock`).
+  The home directory is inherently secure because of its owner-only file permissions, preventing other users on a shared remote server from accessing or hijacking the forwarded socket.
+
+Reason for Rejection::
+  The SSH client configuration directive `RemoteForward` does not support tilde (`~`) expansion.
+  Configuring `RemoteForward ~/.netclip.sock 127.0.0.1:45555` causes standard SSH clients to fail to resolve the path, resulting in forwarding errors or binding failures.
+
+Selected Alternative::
+  We reverted the default remote socket path to `/tmp/netclip-%r.sock`.
+  To mitigate multi-user conflicts and secure access in the shared `/tmp` directory, we utilize the SSH user expansion token `%r` on the client side (`/tmp/netclip-%r.sock`) and the shell variable `${USER}` on the remote side (`/tmp/netclip-${USER}.sock`).
+  Access permissions must be configured securely on the `/tmp` directory and the generated socket files.
