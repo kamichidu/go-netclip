@@ -44,7 +44,7 @@ Host *
 [source,bash]
 ----
 netclip() {
-  local sock="${NETCLIP_SOCK:-~/.netclip.sock}"
+  local sock="${NETCLIP_SOCK:-$HOME/.netclip.sock}"
 
   curl --silent --show-error --fail \
     --unix-socket "$sock" \
