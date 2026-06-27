@@ -1,4 +1,4 @@
-netclip - SSH RemoteForward clipboard synchronization daemon
+netclip - SSH RemoteForward clipboard bridge daemon
 
 Usage:
   netclip <command> [options]

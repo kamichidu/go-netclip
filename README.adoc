@@ -1,6 +1,6 @@
 = netclip
 
-`netclip` is a lightweight clipboard synchronization tool
+`netclip` is a lightweight clipboard bridge
 that allows copying text from an SSH remote host directly to your local machine's clipboard.
 It achieves this without running any persistent daemon or dedicated executable on the remote host,
 relying solely on standard SSH forwarding and a local daemon.
