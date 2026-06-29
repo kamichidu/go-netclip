@@ -1,0 +1,74 @@
+#!/bin/bash
+set -euo pipefail
+
+install-golangci-lint() {
+    local target_dir="${1}"
+    local version="2.12.2"
+    
+    local os
+    os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    
+    local arch
+    arch="$(uname -m)"
+    if [[ "${arch}" == "x86_64" ]]; then
+        arch="amd64"
+    fi
+    
+    printf "Installing golangci-lint v%s to %s...\n" "${version}" "${target_dir}" >&2
+    mkdir -p "${target_dir}"
+    
+    if ! command -v curl &>/dev/null; then
+        printf "Error: curl is required to install golangci-lint but was not found.\n" >&2
+        exit 1
+    fi
+    
+    if ! command -v tar &>/dev/null; then
+        printf "Error: tar is required to extract golangci-lint but was not found.\n" >&2
+        exit 1
+    fi
+
+    local url="https://github.com/golangci/golangci-lint/releases/download/v${version}/golangci-lint-${version}-${os}-${arch}.tar.gz"
+    
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    # Ensure cleanup of tmp_dir on function exit or error
+    trap 'rm -rf "${tmp_dir}"' RETURN EXIT
+
+    printf "Downloading from %s...\n" "${url}" >&2
+    if ! curl -sSfL -o "${tmp_dir}/archive.tar.gz" "${url}"; then
+        printf "Error: Failed to download golangci-lint from %s\n" "${url}" >&2
+        exit 1
+    fi
+
+    tar -xzf "${tmp_dir}/archive.tar.gz" -C "${tmp_dir}"
+
+    local extracted_bin="${tmp_dir}/golangci-lint-${version}-${os}-${arch}/golangci-lint"
+    if [[ ! -f "${extracted_bin}" ]]; then
+        # Fallback: search for the binary in case of directory naming mismatch
+        extracted_bin="$(find "${tmp_dir}" -type f -name "golangci-lint" | head -n 1)"
+    fi
+
+    if [[ -f "${extracted_bin}" ]]; then
+        mv "${extracted_bin}" "${target_dir}/golangci-lint"
+        chmod +x "${target_dir}/golangci-lint"
+        printf "Successfully installed golangci-lint to %s/golangci-lint\n" "${target_dir}" >&2
+    else
+        printf "Error: golangci-lint binary not found in the downloaded archive.\n" >&2
+        exit 1
+    fi
+}
+
+main() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local local_bin="${script_dir}/.local/bin"
+    local bin_path="${local_bin}/golangci-lint"
+
+    if [[ ! -x "${bin_path}" ]]; then
+        install-golangci-lint "${local_bin}"
+    fi
+
+    exec "${bin_path}" "$@"
+}
+
+main "$@"
