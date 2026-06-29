@@ -30,6 +30,7 @@ func main() {
 		listenAddr := fs.String("listen", defaultAddr, "TCP address to listen on")
 		background := fs.Bool("background", false, "Run the daemon process in the background")
 		clipCmd := fs.String("clipboard-command", "", "Explicit command to use for copying (e.g. wl-copy)")
+		pasteCmd := fs.String("paste-command", "", "Explicit command to use for pasting (e.g. wl-paste)")
 
 		fs.Usage = func() {
 			fmt.Fprintf(os.Stderr, "Usage: netclip daemon [options]\n\nOptions:\n")
@@ -40,7 +41,7 @@ func main() {
 			log.Fatalf("error parsing flags: %v", err)
 		}
 
-		runDaemon(*listenAddr, *background, *clipCmd)
+		runDaemon(*listenAddr, *background, *clipCmd, *pasteCmd)
 
 	case "help", "-h", "--help":
 		printUsage()
@@ -57,7 +58,7 @@ func printUsage() {
 	fmt.Fprint(os.Stderr, usageString)
 }
 
-func runDaemon(addr string, background bool, clipboardCommand string) {
+func runDaemon(addr string, background bool, clipboardCommand string, pasteCommand string) {
 	// 1. Check if already listening (guarantees idempotency)
 	if isAlreadyRunning(addr) {
 		log.Printf("netclip daemon is already running and listening on %s. Exiting successfully.", addr)
@@ -66,12 +67,12 @@ func runDaemon(addr string, background bool, clipboardCommand string) {
 
 	// 2. Handle background startup
 	if background {
-		startBackgroundDaemon(addr, clipboardCommand)
+		startBackgroundDaemon(addr, clipboardCommand, pasteCommand)
 		os.Exit(0)
 	}
 
 	// 3. Normal startup (start HTTP server)
-	srv := daemon.NewServer(addr, clipboardCommand)
+	srv := daemon.NewServer(addr, clipboardCommand, pasteCommand)
 	if err := srv.Start(); err != nil {
 		log.Fatalf("failed to start daemon: %v", err)
 	}
@@ -86,7 +87,7 @@ func isAlreadyRunning(addr string) bool {
 	return false
 }
 
-func startBackgroundDaemon(addr, clipboardCommand string) {
+func startBackgroundDaemon(addr, clipboardCommand, pasteCommand string) {
 	self, err := os.Executable()
 	if err != nil {
 		log.Fatalf("failed to get current executable path: %v", err)
@@ -96,6 +97,9 @@ func startBackgroundDaemon(addr, clipboardCommand string) {
 	args = append(args, "daemon", "--listen", addr)
 	if clipboardCommand != "" {
 		args = append(args, "--clipboard-command", clipboardCommand)
+	}
+	if pasteCommand != "" {
+		args = append(args, "--paste-command", pasteCommand)
 	}
 
 	cmd := exec.Command(self, args...)

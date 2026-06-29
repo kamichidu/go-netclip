@@ -11,22 +11,20 @@ import (
 	"github.com/kamichidu/go-netclip/internal/clipboard"
 )
 
-// Server coordinates the HTTP daemon listening on a port to receive copies.
+// Server coordinates the HTTP daemon listening on a port to receive copies and return pastes.
 type Server struct {
 	addr             string
 	clipboardCommand string
+	pasteCommand     string
 	httpServer       *http.Server
 }
 
 // NewServer creates a new Server instance.
-type Listener interface {
-	Addr() net.Addr
-}
-
-func NewServer(addr string, clipboardCommand string) *Server {
+func NewServer(addr string, clipboardCommand string, pasteCommand string) *Server {
 	return &Server{
 		addr:             addr,
 		clipboardCommand: clipboardCommand,
+		pasteCommand:     pasteCommand,
 	}
 }
 
@@ -34,6 +32,7 @@ func NewServer(addr string, clipboardCommand string) *Server {
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/copy", s.handleCopy)
+	mux.HandleFunc("/paste", s.handlePaste)
 
 	s.httpServer = &http.Server{
 		Addr:    s.addr,
@@ -48,6 +47,7 @@ func (s *Server) Start() error {
 func (s *Server) StartWithListener(ln net.Listener) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/copy", s.handleCopy)
+	mux.HandleFunc("/paste", s.handlePaste)
 
 	s.httpServer = &http.Server{
 		Handler: mux,
@@ -79,7 +79,7 @@ func (s *Server) handleCopy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	adapter, err := clipboard.GetAdapter(s.clipboardCommand)
+	adapter, err := clipboard.GetAdapter(s.clipboardCommand, s.pasteCommand)
 	if err != nil {
 		log.Printf("Clipboard adapter error: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -96,4 +96,34 @@ func (s *Server) handleCopy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	adapter, err := clipboard.GetAdapter(s.clipboardCommand, s.pasteCommand)
+	if err != nil {
+		log.Printf("Clipboard adapter error: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	data, err := adapter.Read(ctx)
+	if err != nil {
+		log.Printf("Clipboard read error: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(data); err != nil {
+		log.Printf("Failed to write response: %v", err)
+	}
 }

@@ -94,7 +94,7 @@ Host *
   ExitOnForwardFailure no
 ----
 
-. Define the `netclip` helper function in your shell configuration (e.g., `~/.bashrc` or `~/.zshrc`) on the *remote host*:
+. Define the `netclip` and `netclip-paste` helper functions in your shell configuration (e.g., `~/.bashrc` or `~/.zshrc`) on the *remote host*:
 +
 [source,bash]
 ----
@@ -107,14 +107,33 @@ netclip() {
     --data-binary @- \
     http://netclip/copy
 }
+
+netclip-paste() {
+  local sock="${NETCLIP_SOCK:-/tmp/netclip-${USER}.sock}"
+
+  curl --silent --show-error --fail \
+    --unix-socket "${sock}" \
+    http://netclip/paste
+}
 ----
 
-. Copy any terminal payload from the remote host back to your local machine by piping it into `netclip`:
+. Copy or paste payloads between the remote host and your local machine:
++
+--
+* **Copy** to local clipboard:
 +
 [source,bash]
 ----
 git diff | netclip
 ----
+
+* **Paste** from local clipboard:
++
+[source,bash]
+----
+netclip-paste > imported_changes.patch
+----
+--
 
 == Constraints & Concurrent SSH Invocations
 

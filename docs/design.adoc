@@ -98,7 +98,7 @@ printf 'hello' | curl --silent --show-error --fail \
   http://netclip/copy
 ----
 
-Alias Example:
+Alias Examples:
 
 [source,bash]
 ----
@@ -109,15 +109,24 @@ netclip() {
     --data-binary @- \
     http://netclip/copy
 }
+
+netclip-paste() {
+  curl --silent --show-error --fail \
+    --unix-socket "${NETCLIP_SOCK:-/tmp/netclip-${USER}.sock}" \
+    -X GET \
+    http://netclip/paste
+}
 ----
 
 Usage Examples:
 
 [source,bash]
 ----
+# Copying to local clipboard
 git diff | netclip
-kubectl get deploy -o yaml | netclip
-terraform plan -no-color | netclip
+
+# Pasting from local clipboard to remote stdout or file
+netclip-paste > local_changes.patch
 ----
 
 === socat
@@ -145,8 +154,8 @@ netclip daemon --listen 127.0.0.1:45555 --background
 The daemon must satisfy the following:
 
 * Bind only to loopback interfaces
-* Receive HTTP `POST` requests
-* Write the request body directly to the local operating system's clipboard
+* Receive HTTP `POST` requests to write to the local operating system's clipboard
+* Receive HTTP `GET` requests to read from the local operating system's clipboard
 * Prevent errors or corruption on multiple concurrent invocations (idempotent)
 * Exit successfully if another instance is already running
 * Write failure reasons to `stderr` or log outputs
@@ -180,32 +189,61 @@ On Failure:
 HTTP/1.1 500 Internal Server Error
 ----
 
+==== GET /paste
+
+Retrieves the current clipboard content.
+
+[source,http]
+----
+GET /paste HTTP/1.1
+Host: netclip
+----
+
+On Success:
+
+[source,http]
+----
+HTTP/1.1 200 OK
+Content-Type: application/octet-stream
+
+<clipboard content>
+----
+
+On Failure:
+
+[source,http]
+----
+HTTP/1.1 500 Internal Server Error
+----
+
 == 7. Clipboard Adapter
 
 The adapter switches behavior depending on the host operating system.
 
-[cols="1,3"]
+[cols="1,2,2"]
 |===
-| OS | Command
+| OS | Copy Command | Paste Command
 
 | `darwin`
 | `pbcopy`
+| `pbpaste`
 
 | `windows`
 | `clip.exe` / PowerShell `Set-Clipboard`
+| PowerShell `Get-Clipboard`
 
 | `linux`
-| `wl-copy` / `xclip` / `xsel`
+| `wl-copy` / `xclip -selection clipboard` / `xsel --clipboard --input`
+| `wl-paste` / `xclip -selection clipboard -o` / `xsel --clipboard --output`
 |===
 
 The preference order for automatic detection is specified within the implementation.
 
-Since Linux environments vary widely (Wayland, X11, headless),
-explicit override configuration is permitted.
+Since environments and CLI tool suites vary widely, explicit override configurations are permitted for both copying and pasting.
 
 [source,bash]
 ----
-netclip daemon --clipboard-command wl-copy
+netclip daemon --clipboard-command wl-copy --paste-command wl-paste
 ----
 
 == 8. Security
@@ -219,9 +257,9 @@ Assumed Security Boundary:
 
 [listing]
 ----
-Write access to /tmp/netclip-%r.sock on the remote host
+Write and read access to /tmp/netclip-%r.sock on the remote host
   =
-Write access to the local machine's clipboard
+Write and read access to the local machine's clipboard
 ----
 
 The standard socket is created within a shared directory using a user-specific token (`/tmp/netclip-%r.sock`).
@@ -266,7 +304,7 @@ Host *
   ExitOnForwardFailure yes
 ----
 
-=== Remote Shell Function
+=== Remote Shell Functions
 
 [source,bash]
 ----
@@ -278,6 +316,15 @@ netclip() {
     -X POST \
     --data-binary @- \
     http://netclip/copy
+}
+
+netclip-paste() {
+  local sock="${NETCLIP_SOCK:-/tmp/netclip-${USER}.sock}"
+
+  curl --silent --show-error --fail \
+    --unix-socket "$sock" \
+    -X GET \
+    http://netclip/paste
 }
 ----
 
