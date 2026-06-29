@@ -23,6 +23,61 @@ flowchart TD
     end
 ----
 
+The remote host requires only `curl` with Unix Domain Socket support.
+No additional binaries or daemons are needed.
+
+== Installation
+
+You can install the pre-built binary for your platform using `curl` (or `Invoke-WebRequest` on Windows).
+Select and run the appropriate commands for your operating system:
+
+[NOTE]
+====
+Ensure that `~/.local/bin` (or `%USERPROFILE%\bin` on Windows) is in your system's `PATH` environment variable so you can run `netclip` from anywhere.
+If it is not, add `export PATH="$HOME/.local/bin:$PATH"` to your shell configuration file (e.g., `~/.bashrc` or `~/.zshrc`).
+====
+
+=== macOS (Apple Silicon / Intel)
+
+[source,bash]
+----
+# Ensure the directory exists
+mkdir -p ~/.local/bin
+
+# For Apple Silicon (M1/M2/M3/M4):
+curl -fsSL https://github.com/kamichidu/go-netclip/releases/latest/download/netclip-darwin-arm64 -o ~/.local/bin/netclip
+
+# For Intel Macs:
+# curl -fsSL https://github.com/kamichidu/go-netclip/releases/latest/download/netclip-darwin-amd64 -o ~/.local/bin/netclip
+
+chmod +x ~/.local/bin/netclip
+----
+
+=== Linux (amd64 / arm64)
+
+[source,bash]
+----
+# Ensure the directory exists
+mkdir -p ~/.local/bin
+
+# For x86_64 / amd64:
+curl -fsSL https://github.com/kamichidu/go-netclip/releases/latest/download/netclip-linux-amd64 -o ~/.local/bin/netclip
+
+# For ARM64:
+# curl -fsSL https://github.com/kamichidu/go-netclip/releases/latest/download/netclip-linux-arm64 -o ~/.local/bin/netclip
+
+chmod +x ~/.local/bin/netclip
+----
+
+=== Windows (PowerShell)
+
+[source,powershell]
+----
+# Download the executable and place it in your User profile's bin directory:
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\bin"
+Invoke-WebRequest -Uri "https://github.com/kamichidu/go-netclip/releases/latest/download/netclip-windows-amd64.exe" -OutFile "$env:USERPROFILE\bin\netclip.exe"
+----
+
 == Setup
 
 Follow these steps to set up `netclip`:
@@ -36,7 +91,7 @@ Host *
   LocalCommand netclip daemon --listen 127.0.0.1:45555 --background
   RemoteForward /tmp/netclip-%r.sock 127.0.0.1:45555
   StreamLocalBindUnlink yes
-  ExitOnForwardFailure yes
+  ExitOnForwardFailure no
 ----
 
 . Define the `netclip` helper function in your shell configuration (e.g., `~/.bashrc` or `~/.zshrc`) on the *remote host*:
@@ -63,8 +118,8 @@ git diff | netclip
 
 == Constraints & Concurrent SSH Invocations
 
-By default, standard multi-session concurrent SSH connections to the same remote user are not handled out of the box.
-Since `StreamLocalBindUnlink yes` is configured, a subsequent SSH session will hijack/re-bind the `/tmp/netclip-%r.sock` socket to itself.
+By default, multiple concurrent SSH sessions sharing the same remote socket path are not isolated from one another.
+A subsequent session may re-bind `/tmp/netclip-%r.sock` and take ownership of the clipboard forwarding endpoint.
 
 If you wish to explicitly segregate multiple local machines or sessions, configure distinct socket paths for each:
 
@@ -81,4 +136,16 @@ Host work
 [source,bash]
 ----
 NETCLIP_SOCK=/tmp/netclip-${USER}-mac.sock netclip
+----
+
+== Troubleshooting
+
+=== Reconnection Fails After Abnormal Disconnect
+
+If your SSH connection disconnects abnormally, the remote host might retain a stale socket file, preventing `netclip` from re-binding successfully on subsequent connections.
+If `netclip` stops working after an abnormal disconnect, remove the stale socket on the remote host and reconnect your SSH session:
+
+[source,bash]
+----
+rm -f /tmp/netclip-$USER.sock
 ----
