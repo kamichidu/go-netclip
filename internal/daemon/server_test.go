@@ -182,7 +182,7 @@ func TestShellScriptClient(t *testing.T) {
 	t.Run("copy", func(t *testing.T) {
 		cmd := exec.Command("/bin/bash", scriptPath, "copy")
 		cmd.Env = append(os.Environ(), "NETCLIP_SOCK="+socketPath)
-		
+
 		inputData := "hello from client script"
 		cmd.Stdin = bytes.NewReader([]byte(inputData))
 
