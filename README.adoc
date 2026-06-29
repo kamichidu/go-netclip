@@ -116,6 +116,19 @@ netclip-paste() {
     http://netclip/paste
 }
 ----
++
+[TIP]
+====
+Alternatively, if you prefer not to copy-paste the helper functions into your shell configuration, a simple wrapper script is also provided in the repository. You can install it using `curl` as follows:
+
+[source,bash]
+----
+# Ensure ~/.local/bin is in your PATH
+mkdir -p ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/kamichidu/go-netclip/main/example/netclip-client/netclip -o ~/.local/bin/netclip
+chmod +x ~/.local/bin/netclip
+----
+====
 
 . Copy or paste payloads between the remote host and your local machine:
 +
@@ -133,6 +146,8 @@ git diff | netclip
 ----
 netclip-paste > imported_changes.patch
 ----
+
+NOTE: When using the alternative client script, you can run `netclip` (or `netclip copy`) to copy, and `netclip paste` to paste.
 --
 
 == Constraints & Concurrent SSH Invocations

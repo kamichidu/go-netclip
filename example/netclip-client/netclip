@@ -1,0 +1,91 @@
+#!/bin/bash
+set -euo pipefail
+
+# Print usage instructions to standard output.
+netclip-help() {
+  printf "Usage: %s [copy|paste|help]\n" "$(basename "${0}")"
+  printf "\n"
+  printf "Commands:\n"
+  printf "  copy     Copy stdin to the local clipboard (default)\n"
+  printf "  paste    Paste from the local clipboard to stdout\n"
+  printf "  help     Show this help message\n"
+}
+
+# Resolve and output the path to the UNIX domain socket.
+get-socket-path() {
+  local current_user="${USER:-}"
+
+  if [[ -z "${current_user}" ]]; then
+    printf "Error: environment variable USER is not set or empty.\n" >&2
+    return 1
+  fi
+
+  printf "%s\n" "${NETCLIP_SOCK:-/tmp/netclip-${current_user}.sock}"
+}
+
+# Ensure curl is installed and the UNIX domain socket is active and valid.
+assert-socket-ready() {
+  local socket_path="${1}"
+
+  # Verify if curl is available
+  if ! command -v curl >/dev/null 2>&1; then
+    printf "Error: curl is required but not installed.\n" >&2
+    return 1
+  fi
+
+  # Check if the socket file exists before making the request
+  if [[ ! -S "${socket_path}" ]]; then
+    printf "Error: UNIX domain socket does not exist or is not a socket: %s\n" "${socket_path}" >&2
+    printf "Please ensure the netclip SSH forward daemon is running and forwarding to this socket.\n" >&2
+    return 1
+  fi
+}
+
+# Perform the copy operation.
+netclip-copy() {
+  local socket_path
+  socket_path="$(get-socket-path)"
+
+  assert-socket-ready "${socket_path}"
+
+  curl --silent --show-error --fail \
+    --unix-socket "${socket_path}" \
+    -X POST \
+    --data-binary @- \
+    "http://netclip/copy"
+}
+
+# Perform the paste operation.
+netclip-paste() {
+  local socket_path
+  socket_path="$(get-socket-path)"
+
+  assert-socket-ready "${socket_path}"
+
+  curl --silent --show-error --fail \
+    --unix-socket "${socket_path}" \
+    -X GET \
+    "http://netclip/paste"
+}
+
+main() {
+  local action="${1:-copy}"
+
+  # Normalize help flags to standard 'help'
+  if [[ "${action}" == "-h" || "${action}" == "--help" ]]; then
+    action="help"
+  fi
+
+  local func="netclip-${action}"
+
+  # Dispatch to the function dynamically if defined
+  if declare -f "${func}" >/dev/null 2>&1; then
+    "${func}"
+  else
+    printf "Error: unknown command '%s'\n\n" "${action}" >&2
+    netclip-help >&2
+    return 1
+  fi
+}
+
+main "$@"
